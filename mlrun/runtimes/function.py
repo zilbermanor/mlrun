@@ -43,9 +43,9 @@ def new_model_server(name, model_class: str, models: dict = None, filename='',
                      workers=8, canary=None):
     f = RemoteRuntime()
     f.metadata.name = name
-    if not image:
-        bname, spec, code = nuclio.build_file(filename, handler=serving_handler, kind='serving')
-        f.spec.base_spec = spec
+    # if not image:
+    bname, spec, code = nuclio.build_file(filename, handler=serving_handler, kind='serving')
+    f.spec.base_spec = spec
 
     f.serving(models, model_class, protocol, image=image, endpoint=endpoint,
               explainer=explainer, workers=workers, canary=canary)
