@@ -20,7 +20,7 @@ import pathlib
 
 from .datastore import StoreManager
 from .db import RunDBInterface
-from .utils import uxjoin, run_keys, dict_to_json
+from .utils import uxjoin, run_keys, dict_to_json, logger
 from .model import ModelObj
 
 
@@ -67,7 +67,8 @@ class ArtifactManager:
 
     def log_artifact(
         self, execution, item, body=None, target_path='', src_path='', tag='',
-            viewer='', local_path='', upload=True, labels=None):
+            viewer='', local_path='', artifact_path=None,
+            upload=True, labels=None):
         if isinstance(item, str):
             key = item
             item = Artifact(key, body)
@@ -76,6 +77,11 @@ class ArtifactManager:
             target_path = target_path or item.target_path
 
         src_path = src_path or local_path # TODO: remove src_path
+        if artifact_path:
+            target_path = uxjoin(
+                artifact_path, local_path, execution.iteration)
+
+
         # find the target path from defaults and config
         item.viewer = viewer or item.viewer
         item.src_path = src_path or item.src_path
@@ -122,6 +128,11 @@ class ArtifactManager:
                 item.iter = execution.iteration
             self.artifact_db.store_artifact(key, item.to_dict(), item.tree,
                                             tag, execution.project)
+
+        size = str(item.size) or '?'
+        logger.info('log artifact {} at {}, size: {}, db: {}'.format(
+            key, target_path, size, 'Y' if self.artifact_db else 'N'
+        ))
 
     def get_store(self, url):
         return self.data_stores.get_or_create_store(url)

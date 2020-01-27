@@ -20,6 +20,7 @@ import requests
 from ..utils import dict_to_json, logger
 from .base import RunDBError, RunDBInterface
 from ..lists import RunList, ArtifactList
+from ..config import config
 
 default_project = 'default'  # TODO: Name?
 
@@ -39,7 +40,7 @@ def bool2str(val):
 
 class HTTPRunDB(RunDBInterface):
     kind = 'http'
-    
+
     def __init__(self, base_url, user='', password='', token=''):
         self.base_url = base_url
         self.user = user
@@ -55,7 +56,7 @@ class HTTPRunDB(RunDBInterface):
         url = f'{self.base_url}/api/{path}'
         kw = {
             key: value
-            for key, value in (('params', params), ('data', body), 
+            for key, value in (('params', params), ('data', body),
                                ('json', json))
             if value is not None
         }
@@ -90,7 +91,7 @@ class HTTPRunDB(RunDBInterface):
         error = f'store log {project}/{uid}'
         self.api_call('POST', path, error, params, body)
 
-    def get_log(self, uid, project='', offset=0, size=0):
+    def get_log(self, uid, project='', offset=0, size=-1):
         params = {'offset': offset, 'size': size}
         path = self._path_of('log', project, uid)
         error = f'get log {project}/{uid}'
@@ -292,7 +293,7 @@ class HTTPRunDB(RunDBInterface):
 
         if not resp.ok:
             logger.warning('failed resp, {}'.format(resp.text))
-            raise RunDBError('bad function run response')
+            raise RunDBError('bad function build response')
 
         if resp.headers:
             func.status.state = resp.headers.get('function_status', '')
@@ -301,10 +302,43 @@ class HTTPRunDB(RunDBInterface):
 
         return resp.content
 
-    def submit_job(self, runspec):
+    def remote_start(self, func_url):
+        try:
+            req = {'functionUrl': func_url}
+            resp = self.api_call('POST', 'start/function', json=req)
+        except OSError as err:
+            logger.error('error starting function: {}'.format(err))
+            raise OSError(
+                'error: cannot start function, {}'.format(err))
+
+        if not resp.ok:
+            logger.error('bad resp!!\n{}'.format(resp.text))
+            raise ValueError('bad function start response')
+
+        return resp.json()['data']
+
+    def remote_status(self, kind, selector):
+        try:
+            req = {'kind': kind, 'selector': selector}
+            resp = self.api_call('POST', 'status/function', json=req)
+        except OSError as err:
+            logger.error('error starting function: {}'.format(err))
+            raise OSError(
+                'error: cannot start function, {}'.format(err))
+
+        if not resp.ok:
+            logger.error('bad resp!!\n{}'.format(resp.text))
+            raise ValueError('bad function status response')
+
+        return resp.json()['data']
+
+    def submit_job(self, runspec, schedule=None):
         try:
             req = {'task': runspec.to_dict()}
-            resp = self.api_call('POST', 'submit', json=req, timeout=90)
+            if schedule:
+                req['schedule'] = schedule
+            timeout = (int(config.k8s_submit_timeout) or 120) + 20
+            resp = self.api_call('POST', 'submit', json=req, timeout=timeout)
         except OSError as err:
             logger.error('error submitting task: {}'.format(err))
             raise OSError(

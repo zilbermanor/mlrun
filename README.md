@@ -3,6 +3,7 @@
 [![CircleCI](https://circleci.com/gh/mlrun/mlrun/tree/development.svg?style=svg)](https://circleci.com/gh/mlrun/mlrun/tree/development)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![PyPI version fury.io](https://badge.fury.io/py/mlrun.svg)](https://pypi.python.org/pypi/mlrun/)
+[![Documentation](https://readthedocs.org/projects/mlrun/badge/?version=latest)](https://mlrun.readthedocs.io/en/latest/?badge=latest)
 
 A generic an easy to use mechanism for data scientists and developers/engineers 
 to describe and run machine learning related tasks in various scalable runtime environments and ML pipelines
@@ -49,12 +50,12 @@ both YAMLs can be found in `./hack`, edit according to the comments and
 apply to your cluster using `kubectl apply -f <yaml-file>`
 
 ```
-curl https://raw.githubusercontent.com/mlrun/mlrun/master/hack/mlrunapi.yaml
+curl -O https://raw.githubusercontent.com/mlrun/mlrun/master/hack/mlrunapi.yaml
 # as a minimum replace the <set default registry url> and <access-key> with real values
 # in iguazio cloud the default registry url is: docker-registry.default-tenant.<cluster-dns>:80
 
-kubectl apply -f <updated-yaml-file> 
-kubectl apply -f https://raw.githubusercontent.com/mlrun/mlrun/master/hack/mlrunui.yaml
+kubectl apply -n <namespace> -f <updated-yaml-file> 
+kubectl apply -n <namespace> -f https://raw.githubusercontent.com/mlrun/mlrun/master/hack/mlrunui.yaml
 ```
  
 #### Architecture and tutorial
@@ -63,6 +64,7 @@ kubectl apply -f https://raw.githubusercontent.com/mlrun/mlrun/master/hack/mlrun
 * [Automated parametrization, artifact tracking and logging](#automated-parametrization-artifact-tracking-and-logging)
 * [Using hyper parameters for job scaling](#using-hyper-parameters-for-job-scaling)
 * [Automated code deployment and containerization](#automated-code-deployment-and-containerization)
+* [Build and run function from a remote IDE using the CLI](examples/remote.md)
 * [Running with KubeFlow ML Pipeline](#running-with-kubeflow-ml-pipeline)
 * [MLRun UI - WIP](#mlrun-user-interface)
 * [Run and Artifact Database](#run-and-artifact-database)
@@ -78,7 +80,6 @@ kubectl apply -f https://raw.githubusercontent.com/mlrun/mlrun/master/hack/mlrun
   * [Spark](examples/mlrun_sparkk8s.ipynb)
 * [Importing and exporting functions using files or git](examples/mlrun_export_import.ipynb)
 * [Query MLRUN DB](examples/mlrun_db.ipynb)
-* [Automating container build](examples/build.py)
 
 #### Additional Examples
 
@@ -117,12 +118,14 @@ in this example the task defines our run spec (parameters, inputs, secrets, ..) 
 we run this task on a `job` function, and print out the result 
 output (in this case the `model` artifact) or watch the progress of that run. [see docs and example notebook](examples/mlrun_basics.ipynb).
 
-we can run the same `task` on different functions, enabling code portability and re-use, 
+we can run the same `task` on different functions, enabling code portability, re-use, and AutoML, 
 or we can use the same `function` to run different tasks or parameter combinations with 
 minimal coding effort.
 
 moving from run on a local notebook, to running in a container job, a scaled-out framework
-or an automated workflow engine like KubeFlow is seamless, just swap the runtime/function or wire functions in a graph. [see this tutorial for details]()
+or an automated workflow engine like KubeFlow is seamless, just swap the runtime/function or wire functions in a graph,
+[see this tutorial for details](), CI/CD steps (build, deploy) can also be specified as part of the workflow 
+(using `.deploy_step()` function methods).
 
 Functions can be created using one of three methods:
 * `new_function()` - create a function object from scratch or another function
@@ -206,7 +209,7 @@ will be logged automatically into a database with a single command.
     train_run = new_function().run(handler=xgb_train).with_params(eta=0.3)    
 
 we can swap the `function` with a serverless runtime and the same will run on a cluster.<br>
-this can result in 10x performance boost, see [this notebook](examples/train_xgboost_serverless.ipynb) for details.
+this can result in 10x performance boost.
 more examples can be found in [`\examples`](examples) directory, with `kubernetes job`, `nuclio`, `dask`, `Spark`, or `mpijob` runtimes.
  
 if we run our code from `main` we can get the runtime context by calling the `get_or_create_ctx`
@@ -319,11 +322,11 @@ have multiple workers process them simultaneously instead of one at a time.
 
 ### Automated code deployment and containerization 
 
-Mlrun adopts some of `nuclio` serverless technologies for automatically packaging code and building containers,
+Mlrun adopts `nuclio` serverless technologies for automatically packaging code and building containers,
 this way we can specify code with some package requirements and let the system build and deploy our software.
 
 Building and deploying a function is as easy as typing `function.deploy(..)`, this will initiate a build/deployment job,
-deployment jobs can be incorporated in pipelines just like regular jobs, enabeling full automation and CI/CD.
+deployment jobs can be incorporated in pipelines just like regular jobs (using the `.deploy_step()` method, enabeling full automation and CI/CD.
 
 functions can be built from source code, function specs, notebooks, GIT repos, or tar archives.
 
@@ -352,6 +355,9 @@ use:
     mlrun build function.yaml   
 
 
+See [more examples](examples/remote.md) for building and running fuctions from remote using the CLI.
+
+
 we can convert our notebook into a containerized job, see [detailed example](examples/mlrun_jobs.ipynb):
 
 ```python
@@ -367,7 +373,7 @@ fn.build(image='mlrun/nuctest:latest')
 Running in a pipeline would be similar to running using the command line
 mlrun will automatically save outputs and artifacts in a way which will be visible to KubeFlow, and allow interconnecting steps
 
-see a [full pipelines notebook example](https://github.com/mlrun/demos/blob/master/xgboost/train_xgboost_serverless.ipynb)
+see a [full pipelines notebook example](examples/train_xgboost_serverless.ipynb)
 ```python
 @dsl.pipeline(
     name='My XGBoost training pipeline',
@@ -393,12 +399,8 @@ def xgb_pipeline(
                          inputs={'iterations': train.outputs['iteration_results']},
                          outputs=['iris_dataset'], out_path=artifacts_path).apply(mount_v3io())
 
-
-    # define a nuclio-serving functions, generated from a notebook file
-    srvfn = new_model_server('iris-serving', model_class='XGBoostModel', filename='nuclio_serving.ipynb')
-    
     # deploy the model serving function with inputs from the training stage
-    deploy = srvfn.with_v3io('User','~/').deploy_step(project = 'iris', models={'iris_v1': train.outputs['model']})  
+    deploy = srvfn.deploy_step(project = 'iris', models={'iris_v1': train.outputs['model']})
 ```
 
 ## MLRun User Interface
@@ -457,7 +459,7 @@ to deploy the function into a cluster you can run the following commands
 ```python
 # create the function from the notebook code + annotations, add volumes and parallel HTTP trigger
 fn = code_to_function('xgb_train', runtime='nuclio:mlrun')
-fn.add_volume('User','~/').with_http(workers=32)
+fn.apply(mount_v3io()).with_http(workers=32)
 
 run = fn.run(task, handler='xgb_train')
 ```
@@ -479,20 +481,10 @@ You can pass `MLRUN_httpdb__port` environment variable to change port.
 
 #### Command Line
 
+    mlrun db [options]
+    
 ```
-$ mlrun db --help
-Usage: mlrun [OPTIONS] COMMAND [ARGS]...
-
 Options:
-  --help  Show this message and exit.
-
-Commands:
-  build   Build a container image from code and requirements.
-  clean   Clean completed or failed pods/jobs
-  config  Show configuration & exit
-  db      Run HTTP api/database server
-  deploy  Deploy model or function
-  get     List/get one or more object per kind/class.
-  logs    Get or watch task logs
-  run     Execute a task and inject parameters.
+  -p, --port INTEGER  port to listen on
+  -d, --dirpath TEXT  database directory (dirpath)
 ```
