@@ -10,6 +10,11 @@ class MLRunTFTrainLogger(keras.callbacks.Callback):
         Each epoch's results will be tracked individually and
         the final epoch will be tracked as the final ('best') result.
 
+        Parameters
+        ----------
+        context : MLClientCtx
+            an MLRun context.
+
         Example
         --------
         ```
@@ -17,20 +22,14 @@ class MLRunTFTrainLogger(keras.callbacks.Callback):
         # When training with horovod please add the tracker only on rank 0
         # if hvd.rank() == 0:
         callbacks = callbacks.append(MLRunTrainLogger(mlctx))
-        
+
         # Train with the selected callbacks
         history = model.fit(
             <training_dataset>,
             callbacks=callbacks,
         )
-        
 
         ```
-
-        Parameters
-        ----------
-        context : MLClientCtx
-            an MLRun context.
         """
         self.context = context
         self.context.logger.debug("Tracking training results with MLRunTFTrainLogger")
